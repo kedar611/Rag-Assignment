@@ -279,18 +279,29 @@ Include citations to relevant page numbers where appropriate (e.g., [Page X]).
 ### Answer:"""
 
         if self.provider == "groq":
-            response = self.groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a professional RAG assistant who answers questions strictly based on provided PDF context.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=temperature,
-            )
-            return response.choices[0].message.content.strip()
+            # Try primary model, fall back if unavailable
+            models_to_try = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+            last_error = None
+            for model_name in models_to_try:
+                try:
+                    response = self.groq_client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You are a professional RAG assistant who answers questions strictly based on provided PDF context.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        temperature=temperature,
+                    )
+                    return response.choices[0].message.content.strip()
+                except Exception as e:
+                    last_error = e
+                    if "model_not_found" in str(e) or "404" in str(e):
+                        continue
+                    raise
+            raise RuntimeError(f"No available Groq model found. Last error: {last_error}")
 
         if self.provider == "gemini":
             import time
