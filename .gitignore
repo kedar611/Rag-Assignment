@@ -1,3 +1,22 @@
+# Environment variables (keep keys secret!)
 .env
+*.env
+
+# Python bytecode and caches
 __pycache__/
+*.py[cod]
+*$py.class
 *.pyc
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Streamlit local settings
+.streamlit/secrets.toml
+
+# OS generated files
+.DS_Store
+Thumbs.db

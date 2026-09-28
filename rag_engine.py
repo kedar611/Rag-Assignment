@@ -107,14 +107,33 @@ class RAGEngine:
         model = "models/gemini-embedding-001"
         embeddings = []
         # Gemini embedding API accepts batches or single texts
+        import time
+        from google.api_core import exceptions as google_exceptions
+
         batch_size = 20
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            result = genai.embed_content(
-                model=model,
-                content=batch,
-                task_type=task_type,
-            )
+            
+            # Retry loop for rate-limits (HTTP 429)
+            max_retries = 3
+            result = None
+            for attempt in range(max_retries):
+                try:
+                    result = genai.embed_content(
+                        model=model,
+                        content=batch,
+                        task_type=task_type,
+                    )
+                    break
+                except google_exceptions.ResourceExhausted:
+                    if attempt < max_retries - 1:
+                        time.sleep(5 * (attempt + 1))
+                    else:
+                        raise RuntimeError(
+                            "Gemini Free Tier rate limit reached (5 requests/minute). "
+                            "Please wait about 30-60 seconds and try again."
+                        )
+
             # result['embedding'] can be a list of lists or a single list
             batch_emb = result["embedding"]
             if isinstance(batch_emb[0], list):
@@ -214,14 +233,27 @@ Include citations to relevant page numbers where appropriate (e.g., [Page X]).
 ### Answer:"""
 
         if self.provider == "gemini":
+            import time
+            from google.api_core import exceptions as google_exceptions
             import google.generativeai as genai
-            # Use gemini-3.8-flash
+            
             model = genai.GenerativeModel("gemini-3.8-flash")
-            response = model.generate_content(
-                prompt,
-                generation_config={"temperature": temperature},
-            )
-            return response.text.strip()
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = model.generate_content(
+                        prompt,
+                        generation_config={"temperature": temperature},
+                    )
+                    return response.text.strip()
+                except google_exceptions.ResourceExhausted:
+                    if attempt < max_retries - 1:
+                        time.sleep(6 * (attempt + 1))
+                    else:
+                        raise RuntimeError(
+                            "Gemini Free Tier rate limit reached (5 requests/minute). "
+                            "Please wait a few seconds and submit your question again."
+                        )
 
         elif self.provider == "openai":
             response = self.openai_client.chat.completions.create(
