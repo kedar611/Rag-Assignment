@@ -37,14 +37,27 @@ class RAGEngine:
         self.chunks: List[DocumentChunk] = []
         self.faiss_index: Optional[faiss.IndexFlatIP] = None
         self.embedding_dim: Optional[int] = None
+        self.tfidf_vectorizer = None
+        self.tfidf_matrix = None
         
         self._init_client()
 
     def _init_client(self):
+        if self.provider in ["demo", "offline"]:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            self.tfidf_vectorizer = TfidfVectorizer(stop_words="english")
+            return
+
         if not self.api_key:
             return
 
         if self.provider == "gemini":
+            if self.api_key.startswith("AQ."):
+                raise ValueError(
+                    "The provided key starts with 'AQ.', which is an OAuth/Bearer access token, NOT an API key. "
+                    "Google Gemini API requires a standard API key starting with 'AIzaSy...'. "
+                    "Please get a free API key at https://aistudio.google.com/app/apikey or choose 'Demo / Offline Mode'."
+                )
             import google.generativeai as genai
             genai.configure(api_key=self.api_key)
         elif self.provider == "openai":
@@ -170,15 +183,19 @@ class RAGEngine:
 
     def build_vector_index(self, chunks: List[DocumentChunk]):
         """
-        Embeds chunks and creates a FAISS flat inner product (cosine similarity) index.
+        Embeds chunks and creates a FAISS index (or TF-IDF index in Demo mode).
         """
         if not chunks:
             raise ValueError("No chunks provided to index.")
 
         self.chunks = chunks
         texts = [c.content for c in chunks]
-        embeddings = self.get_embeddings(texts, is_query=False)
 
+        if self.provider in ["demo", "offline"]:
+            self.tfidf_matrix = self.tfidf_vectorizer.fit_transform(texts)
+            return
+
+        embeddings = self.get_embeddings(texts, is_query=False)
         self.embedding_dim = embeddings.shape[1]
         self.faiss_index = faiss.IndexFlatIP(self.embedding_dim)
         self.faiss_index.add(embeddings)
@@ -187,6 +204,18 @@ class RAGEngine:
         """
         Retrieves top_k most similar chunks for the query along with cosine similarity score.
         """
+        if self.provider in ["demo", "offline"]:
+            if self.tfidf_matrix is None or not self.chunks:
+                raise ValueError("Vector index is empty. Please upload and index a PDF first.")
+            from sklearn.metrics.pairwise import cosine_similarity
+            query_vec = self.tfidf_vectorizer.transform([query])
+            sim_scores = cosine_similarity(query_vec, self.tfidf_matrix)[0]
+            top_indices = np.argsort(sim_scores)[::-1][:min(top_k, len(self.chunks))]
+            results = []
+            for idx in top_indices:
+                results.append((self.chunks[idx], float(sim_scores[idx])))
+            return results
+
         if self.faiss_index is None or not self.chunks:
             raise ValueError("Vector index is empty. Please upload and index a PDF first.")
 
@@ -209,6 +238,15 @@ class RAGEngine:
         """
         Synthesizes an answer using the chosen LLM, grounded in the retrieved chunks.
         """
+        if self.provider in ["demo", "offline"]:
+            if not retrieved_items:
+                return "The document does not contain enough matching text for this question."
+            snippets = []
+            for chunk, score in retrieved_items[:2]:
+                first_few_sentences = ". ".join([s.strip() for s in chunk.content.split(". ") if s.strip()][:2])
+                snippets.append(f"**From Page {chunk.page_number}** (Relevance: {score*100:.1f}%):\n> \"{first_few_sentences}\"")
+            return "(Offline Demo Mode - Extracted Excerpts):\n\n" + "\n\n".join(snippets)
+
         if not self.api_key:
             raise ValueError("API Key is required to generate answers.")
 

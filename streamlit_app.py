@@ -77,28 +77,46 @@ with st.sidebar:
     st.title("⚙️ RAG Configuration")
     
     provider = st.selectbox(
-        "LLM Provider",
-        options=["Google Gemini", "OpenAI"],
+        "Model Provider",
+        options=["Google Gemini (Recommended)", "Offline Demo (No Key Needed)", "OpenAI"],
         index=0,
-        help="Select the backend LLM and Embedding provider.",
+        help="Select the backend provider. Offline Demo mode requires no API key.",
     )
-    provider_key = "gemini" if provider == "Google Gemini" else "openai"
+    if provider == "Google Gemini (Recommended)":
+        provider_key = "gemini"
+    elif provider == "Offline Demo (No Key Needed)":
+        provider_key = "demo"
+    else:
+        provider_key = "openai"
 
-    default_key = ""
-    if provider_key == "gemini":
+    api_key = ""
+    if provider_key == "demo":
+        st.info("💡 **Offline Demo Mode Active:** No API key or internet model access required. Uses local text similarity to retrieve excerpts.")
+    elif provider_key == "gemini":
         default_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
         st.caption("💡 [Get a free Gemini API Key](https://aistudio.google.com/app/apikey)")
+        api_key = st.text_input(
+            "Google Gemini API Key",
+            value=default_key,
+            type="password",
+            placeholder="AIzaSy...",
+            help="Must start with AIzaSy... from Google AI Studio",
+        )
+        if api_key and not api_key.startswith("AIzaSy"):
+            st.error(
+                "❌ **Invalid Key Format:** Your key starts with `" + api_key[:5] + "...`.\n\n"
+                "Google Gemini strictly requires a key starting with **`AIzaSy...`**.\n\n"
+                "👉 [Click here to create a free key](https://aistudio.google.com/app/apikey) or select **'Offline Demo (No Key Needed)'** above to test right now!"
+            )
     else:
         default_key = os.getenv("OPENAI_API_KEY") or ""
         st.caption("💡 [Get an OpenAI API Key](https://platform.openai.com/api-keys)")
-
-    api_key = st.text_input(
-        f"{provider} API Key",
-        value=default_key,
-        type="password",
-        placeholder="Enter your API key here",
-        help="You can also define it in a .env file.",
-    )
+        api_key = st.text_input(
+            "OpenAI API Key",
+            value=default_key,
+            type="password",
+            placeholder="sk-...",
+        )
 
     st.markdown("---")
     st.subheader("🎯 RAG Parameters")
@@ -146,10 +164,10 @@ if uploaded_file is not None:
         reindex_clicked = st.button("🔄 (Re)Index Document", use_container_width=True)
 
     if needs_reindex or reindex_clicked:
-        if not api_key:
-            st.error(f"⚠️ Please enter your **{provider} API Key** in the sidebar before indexing.")
+        if not api_key and provider_key != "demo":
+            st.error(f"⚠️ Please enter a valid **{provider} API Key** in the sidebar before indexing, or choose 'Offline Demo' mode.")
         else:
-            with st.spinner("Extracting text, chunking, and embedding with FAISS..."):
+            with st.spinner("Extracting text, chunking, and embedding..."):
                 try:
                     file_bytes = uploaded_file.read()
                     engine = RAGEngine(
