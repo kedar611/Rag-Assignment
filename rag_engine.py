@@ -24,7 +24,7 @@ class RAGEngine:
     ):
         """
         Initializes the RAG Engine.
-        :param provider: 'gemini' or 'openai'
+        :param provider: 'gemini', 'groq', 'openai', or 'demo'
         :param api_key: API Key for the chosen provider
         :param chunk_size: Character size for chunking
         :param chunk_overlap: Character overlap between consecutive chunks
@@ -49,6 +49,14 @@ class RAGEngine:
             return
 
         if not self.api_key:
+            return
+
+        if self.provider == "groq":
+            from groq import Groq
+            self.groq_client = Groq(api_key=self.api_key)
+            # Groq doesn't have an embedding API, so use TF-IDF for retrieval
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            self.tfidf_vectorizer = TfidfVectorizer(stop_words="english")
             return
 
         if self.provider == "gemini":
@@ -191,7 +199,7 @@ class RAGEngine:
         self.chunks = chunks
         texts = [c.content for c in chunks]
 
-        if self.provider in ["demo", "offline"]:
+        if self.provider in ["demo", "offline", "groq"]:
             self.tfidf_matrix = self.tfidf_vectorizer.fit_transform(texts)
             return
 
@@ -204,7 +212,7 @@ class RAGEngine:
         """
         Retrieves top_k most similar chunks for the query along with cosine similarity score.
         """
-        if self.provider in ["demo", "offline"]:
+        if self.provider in ["demo", "offline", "groq"]:
             if self.tfidf_matrix is None or not self.chunks:
                 raise ValueError("Vector index is empty. Please upload and index a PDF first.")
             from sklearn.metrics.pairwise import cosine_similarity
@@ -269,6 +277,20 @@ Include citations to relevant page numbers where appropriate (e.g., [Page X]).
 {query}
 
 ### Answer:"""
+
+        if self.provider == "groq":
+            response = self.groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a professional RAG assistant who answers questions strictly based on provided PDF context.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=temperature,
+            )
+            return response.choices[0].message.content.strip()
 
         if self.provider == "gemini":
             import time

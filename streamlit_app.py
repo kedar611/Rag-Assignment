@@ -78,11 +78,13 @@ with st.sidebar:
     
     provider = st.selectbox(
         "Model Provider",
-        options=["Google Gemini (Recommended)", "Offline Demo (No Key Needed)", "OpenAI"],
+        options=["Groq (Recommended - Free & Fast)", "Google Gemini", "Offline Demo (No Key Needed)", "OpenAI"],
         index=0,
-        help="Select the backend provider. Offline Demo mode requires no API key.",
+        help="Select the backend provider. Groq is free and fast. Offline Demo mode requires no API key.",
     )
-    if provider == "Google Gemini (Recommended)":
+    if provider == "Groq (Recommended - Free & Fast)":
+        provider_key = "groq"
+    elif provider == "Google Gemini":
         provider_key = "gemini"
     elif provider == "Offline Demo (No Key Needed)":
         provider_key = "demo"
@@ -92,6 +94,18 @@ with st.sidebar:
     api_key = ""
     if provider_key == "demo":
         st.info("💡 **Offline Demo Mode Active:** No API key or internet model access required. Uses local text similarity to retrieve excerpts.")
+    elif provider_key == "groq":
+        default_key = os.getenv("GROQ_API_KEY") or ""
+        st.caption("💡 [Get a free Groq API Key](https://console.groq.com/keys)")
+        api_key = st.text_input(
+            "Groq API Key",
+            value=default_key,
+            type="password",
+            placeholder="gsk_...",
+            help="Must start with gsk_... from Groq Console",
+        )
+        if api_key and not api_key.startswith("gsk_"):
+            st.error("❌ **Invalid Key Format:** Groq keys must start with `gsk_...`")
     elif provider_key == "gemini":
         default_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
         st.caption("💡 [Get a free Gemini API Key](https://aistudio.google.com/app/apikey)")
