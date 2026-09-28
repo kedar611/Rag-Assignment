@@ -279,6 +279,24 @@ Include citations to relevant page numbers where appropriate (e.g., [Page X]).
 ### Answer:"""
 
         if self.provider == "groq":
+            # Truncate context to reduce token usage (free tier has low limits)
+            truncated_context_parts = []
+            for i, (chunk, score) in enumerate(retrieved_items[:2], 1):
+                truncated = chunk.content[:400]
+                truncated_context_parts.append(
+                    f"[Source #{i} | Page {chunk.page_number}]\n{truncated}"
+                )
+            short_context = "\n\n---\n\n".join(truncated_context_parts)
+            short_prompt = f"""Answer the question based on these document excerpts. Cite page numbers. Be concise.
+
+### Context:
+{short_context}
+
+### Question:
+{query}
+
+### Answer:"""
+
             # Try primary model, fall back if unavailable
             models_to_try = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"]
             last_error = None
@@ -289,16 +307,22 @@ Include citations to relevant page numbers where appropriate (e.g., [Page X]).
                         messages=[
                             {
                                 "role": "system",
-                                "content": "You are a professional RAG assistant who answers questions strictly based on provided PDF context.",
+                                "content": "You are a concise document assistant. Keep answers brief.",
                             },
-                            {"role": "user", "content": prompt},
+                            {"role": "user", "content": short_prompt},
                         ],
                         temperature=temperature,
+                        max_tokens=400,
                     )
                     return response.choices[0].message.content.strip()
                 except Exception as e:
                     last_error = e
-                    if "model_not_found" in str(e) or "404" in str(e):
+                    err_str = str(e)
+                    if "model_not_found" in err_str or "404" in err_str:
+                        continue
+                    if "rate_limit_exceeded" in err_str:
+                        import time
+                        time.sleep(60)  # Wait 1 minute for rate limit reset
                         continue
                     raise
             raise RuntimeError(f"No available Groq model found. Last error: {last_error}")
